@@ -1,7 +1,12 @@
 // ignore_for_file: use_build_context_synchronously, prefer_const_constructors
 
+import 'dart:convert';
+
+import 'package:application_gestion_des_reclamations_pfe/firebase_options.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
 
 class DetailsReclamationPage extends StatefulWidget {
   final Map<String, dynamic> reclamationDetails;
@@ -25,6 +30,48 @@ class _DetailsReclamationPageState extends State<DetailsReclamationPage> {
     _descriptionController.text =
         widget.reclamationDetails['description'] ?? '';
   }
+
+   Future<void> _sendNotificationToStudent(
+      String? emailEtudiant, String message) async {
+    if (emailEtudiant == null) return;
+
+    try {
+      // Get the FCM token of the student
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('etudiants')
+          .where('email', isEqualTo: emailEtudiant)
+          .get();
+      if (querySnapshot.docs.isNotEmpty) {
+        String fcmToken = querySnapshot.docs.first['fcmToken'];
+
+        AccessTokenFirebase accessTokenFirebase = AccessTokenFirebase();
+        String token = await accessTokenFirebase.getAccessToken();
+
+        // Send the notification using FCM
+        await http.post(
+          Uri.parse(
+              'https://fcm.googleapis.com/v1/projects/final-pfe-project/messages:send'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({
+            "message": {
+              "token": fcmToken,
+              "notification": {
+                "body": message,
+                "title": "Réponse à votre réclamation"
+              }
+            }
+          }),
+        );
+        print('reponse sent ------------------------------');
+      }
+    } catch (e) {
+      print('Error sending notification: $e');
+    }
+  }
+
 
   Future<void> _updateReclamation() async {
     // Get the document ID of the reclamation to update
@@ -53,6 +100,11 @@ class _DetailsReclamationPageState extends State<DetailsReclamationPage> {
       setState(() {
         widget.reclamationDetails['reponse'] = reponse;
       });
+
+       // Notify the student about the response
+      String emailEtudiant = widget.reclamationDetails['emailEtudiant'];
+      String message = 'Vous avez une nouvelle réponse à votre réclamation.';
+      await _sendNotificationToStudent(emailEtudiant, message);
 
       // Show a success message or navigate back
       ScaffoldMessenger.of(context).showSnackBar(
